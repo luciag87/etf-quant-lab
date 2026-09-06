@@ -1,0 +1,44 @@
+- symbol: DEMO
+  name: Synthetic EUR research fixture (not a security)
+  ISIN: ZZ0000000008
+  exchange: Synthetic on Xetra calendar
+  mic: XETR
+  currency: EUR
+  country: DE
+  listing_timezone: Europe/Berlin
+  inception_date: 2000-01-01
+  listing_date: 2000-01-01
+  known_from: 2000-01-01
+  source: Synthetic test identity; checksum valid, not an issued ISIN
+- symbol: CSPX
+  name: iShares Core S&P 500 UCITS ETF USD (Acc)
+  ISIN: IE00B5BMR087
+  exchange: London Stock Exchange
+  mic: XLON
+  currency: USD
+  country: GB
+  fund_domicile: IE
+  ucits: true
+  distribution_policy: accumulating
+  benchmark: S&P 500
+  listing_timezone: Europe/London
+  inception_date: 2010-05-19
+  listing_date: 2010-09-15
+  known_from: 2026-09-06
+  source: https://www.ishares.com/uk/individual/en/products/253743/ishares-sp-500-b-ucits-etf-acc-fund
+- symbol: SXR8
+  name: iShares Core S&P 500 UCITS ETF USD (Acc) EUR trading line
+  ISIN: IE00B5BMR087
+  exchange: Deutsche Boerse Xetra
+  mic: XETR
+  currency: EUR
+  country: DE
+  fund_domicile: IE
+  ucits: true
+  distribution_policy: accumulating
+  benchmark: S&P 500
+  listing_timezone: Europe/Berlin
+  inception_date: 2010-05-19
+  listing_date: 2010-05-26
+  known_from: 2026-09-06
+  source: https://www.ishares.com/uk/individual/en/products/253743/ishares-sp-500-b-ucits-etf-acc-fund

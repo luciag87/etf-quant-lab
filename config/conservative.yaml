@@ -1,0 +1,12 @@
+risk:
+  starting_equity: 10000
+  base_currency: EUR
+  risk_per_trade_pct: 0.5
+  max_position_pct: 10
+  max_sector_exposure_pct: 30
+  max_total_exposure_pct: 50
+  max_daily_loss_pct: 2
+  max_drawdown_pct: 10
+  max_open_positions: 3
+execution:
+  mode: pessimistic

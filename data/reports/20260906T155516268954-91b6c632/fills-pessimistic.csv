@@ -1,0 +1,2 @@
+instrument_id,side,quantity,timestamp,price,fx_rate,commission,fx_cost,spread_cost,slippage_cost,reason
+ZZ0000000008:XETR:EUR,BUY,99,2024-01-02 08:40:00+00:00,100.16136602220612,1.0,2.0,0.0,3.963214073801197,3.976837622179661,baseline

@@ -1,0 +1,117 @@
+{
+    'run_id': '20260906T155224760504-f0fc526b-ideal',
+    'strategy': 'momentum',
+    'dataset': 
+'bac8e5c94dae1c8db238c9f31ff3e5f2214a2f6a0d2e24e5088d0bb7622b5fe1',
+    'split': 'research',
+    'total_return': 0.01061184226084011,
+    'max_drawdown': -0.0003709890151598616,
+    'sharpe': None,
+    'expectancy': 2.0022343888378713,
+    'trades': 53,
+    'costs': 0.0
+}
+{
+    'run_id': '20260906T155751568267-f0fc526b-ideal',
+    'strategy': 'momentum',
+    'dataset': 
+'bac8e5c94dae1c8db238c9f31ff3e5f2214a2f6a0d2e24e5088d0bb7622b5fe1',
+    'split': 'research',
+    'total_return': 0.01061184226084011,
+    'max_drawdown': -0.0003709890151598616,
+    'sharpe': None,
+    'expectancy': 2.0022343888378713,
+    'trades': 53,
+    'costs': 0.0
+}
+{
+    'run_id': '20260906T155224760504-f0fc526b-realistic',
+    'strategy': 'momentum',
+    'dataset': 
+'bac8e5c94dae1c8db238c9f31ff3e5f2214a2f6a0d2e24e5088d0bb7622b5fe1',
+    'split': 'research',
+    'total_return': -0.0010121235400595285,
+    'max_drawdown': -0.0020428098384980276,
+    'sharpe': None,
+    'expectancy': -0.23002807728604002,
+    'trades': 44,
+    'costs': 120.96181234625445
+}
+{
+    'run_id': '20260906T155751568267-f0fc526b-realistic',
+    'strategy': 'momentum',
+    'dataset': 
+'bac8e5c94dae1c8db238c9f31ff3e5f2214a2f6a0d2e24e5088d0bb7622b5fe1',
+    'split': 'research',
+    'total_return': -0.0010121235400595285,
+    'max_drawdown': -0.0020428098384980276,
+    'sharpe': None,
+    'expectancy': -0.23002807728604002,
+    'trades': 44,
+    'costs': 120.96181234625445
+}
+{
+    'run_id': '20260906T155224760504-f0fc526b-pessimistic',
+    'strategy': 'momentum',
+    'dataset': 
+'bac8e5c94dae1c8db238c9f31ff3e5f2214a2f6a0d2e24e5088d0bb7622b5fe1',
+    'split': 'research',
+    'total_return': -0.012499553295590937,
+    'max_drawdown': -0.012660093696206576,
+    'sharpe': None,
+    'expectancy': -3.205013665536145,
+    'trades': 39,
+    'costs': 214.12671947462056
+}
+{
+    'run_id': '20260906T155751568267-f0fc526b-pessimistic',
+    'strategy': 'momentum',
+    'dataset': 
+'bac8e5c94dae1c8db238c9f31ff3e5f2214a2f6a0d2e24e5088d0bb7622b5fe1',
+    'split': 'research',
+    'total_return': -0.012499553295590937,
+    'max_drawdown': -0.012660093696206576,
+    'sharpe': None,
+    'expectancy': -3.205013665536145,
+    'trades': 39,
+    'costs': 214.12671947462056
+}
+{
+    'run_id': '20260906T155516268954-91b6c632-ideal',
+    'strategy': 'buy-and-hold',
+    'dataset': 
+'bac8e5c94dae1c8db238c9f31ff3e5f2214a2f6a0d2e24e5088d0bb7622b5fe1',
+    'split': 'research',
+    'total_return': 0.33681517739331435,
+    'max_drawdown': -0.004430798430457017,
+    'sharpe': None,
+    'expectancy': None,
+    'trades': 0,
+    'costs': 0.0
+}
+{
+    'run_id': '20260906T155516268954-91b6c632-realistic',
+    'strategy': 'buy-and-hold',
+    'dataset': 
+'bac8e5c94dae1c8db238c9f31ff3e5f2214a2f6a0d2e24e5088d0bb7622b5fe1',
+    'split': 'research',
+    'total_return': 0.3362220656572541,
+    'max_drawdown': -0.004433083497159762,
+    'sharpe': None,
+    'expectancy': None,
+    'trades': 0,
+    'costs': 4.970025847990429
+}
+{
+    'run_id': '20260906T155516268954-91b6c632-pessimistic',
+    'strategy': 'buy-and-hold',
+    'dataset': 
+'bac8e5c94dae1c8db238c9f31ff3e5f2214a2f6a0d2e24e5088d0bb7622b5fe1',
+    'split': 'research',
+    'total_return': 0.33572506307245487,
+    'max_drawdown': -0.004435000102318343,
+    'sharpe': None,
+    'expectancy': None,
+    'trades': 0,
+    'costs': 9.940051695980857
+}

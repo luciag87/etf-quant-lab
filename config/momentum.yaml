@@ -1,0 +1,21 @@
+strategy:
+  name: momentum
+  timeframe: 5m
+  lookback: 6
+  momentum_threshold: 0.002
+  require_above_vwap: true
+  volume_ratio_min: 1.2
+  atr_period: 14
+  entry_start_minutes_after_open: 30
+  entry_end_minutes_before_close: 60
+  stop_atr_multiple: 1.5
+  take_profit_atr_multiple: 2.5
+  end_of_day_exit: true
+risk:
+  starting_equity: 10000
+  base_currency: EUR
+  risk_per_trade_pct: 0.5
+  max_position_pct: 10
+  max_daily_loss_pct: 2
+execution:
+  mode: realistic

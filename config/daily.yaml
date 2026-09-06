@@ -1,0 +1,6 @@
+strategy:
+  name: momentum
+  timeframe: 1d
+  entry_start_minutes_after_open: 0
+  entry_end_minutes_before_close: 0
+  end_of_day_exit: false

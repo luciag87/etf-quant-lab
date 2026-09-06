@@ -1,0 +1,7 @@
+strategy:
+  name: breakout
+  lookback: 12
+  breakout_buffer_bps: 2
+  volume_ratio_min: 1.2
+  stop_atr_multiple: 1.5
+  trailing_atr_multiple: 2

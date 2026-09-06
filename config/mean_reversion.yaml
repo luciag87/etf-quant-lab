@@ -1,0 +1,7 @@
+strategy:
+  name: mean-reversion
+  lookback: 14
+  zscore_entry: -2
+  rsi_max: 35
+  require_above_vwap: false
+  volume_ratio_min: 0
