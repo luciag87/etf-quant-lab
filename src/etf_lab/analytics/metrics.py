@@ -6,11 +6,21 @@ import pandas as pd
 from etf_lab.backtest.engine import BacktestResult
 
 
+def daily_returns(equity: pd.Series) -> pd.Series:
+    """UTC observed-day returns, including the initial intraday interval."""
+    daily = equity.resample("1D").last().dropna()
+    returns = daily.pct_change()
+    index = pd.DatetimeIndex(equity.index)
+    first_day = equity[index.normalize() == index[0].normalize()]
+    if len(first_day) > 1:
+        returns.iloc[0] = daily.iloc[0] / equity.iloc[0] - 1
+    return returns.dropna()
+
+
 def metrics(result: BacktestResult, benchmark: BacktestResult | None = None) -> dict[str, Any]:
     curve = result.curve.set_index("timestamp")
     equity = curve.equity
-    daily = equity.resample("1D").last().dropna()
-    returns = daily.pct_change().dropna()
+    returns = daily_returns(equity)
     years = (equity.index[-1] - equity.index[0]).total_seconds() / (365.25 * 86400)
     total = float(equity.iloc[-1] / equity.iloc[0] - 1)
     dd = equity / equity.cummax() - 1
@@ -43,6 +53,24 @@ def metrics(result: BacktestResult, benchmark: BacktestResult | None = None) -> 
         float(losses.mean()) if len(losses) else None,
     )
     output: dict[str, Any] = {
+        "marked_to_market_return": total,
+        "realized_return": (result.portfolio.realized_pnl + result.portfolio.distribution_income)
+        / result.portfolio.initial_equity,
+        "distribution_income": result.portfolio.distribution_income,
+        "open_position_count": len(result.portfolio.positions),
+        "open_position_value": result.portfolio.exposure,
+        "net_unrealized_pnl": result.portfolio.unrealized_pnl,
+        "fill_count": len(result.fills),
+        "exit_fill_count": len(pnl),
+        "closed_position_cycle_count": len(result.portfolio.closed_cycles),
+        "closed_cycle_pnl": sum(c["pnl"] for c in result.portfolio.closed_cycles),
+        "closed_cycle_win_rate": sum(c["pnl"] > 0 for c in result.portfolio.closed_cycles)
+        / len(result.portfolio.closed_cycles)
+        if result.portfolio.closed_cycles
+        else None,
+        "estimated_liquidation_cost": result.estimated_liquidation_cost,
+        "liquidation_estimate_reason": result.liquidation_estimate_reason,
+        "pending_order_count": len(result.pending_orders),
         "total_return": total,
         "annualized_return": cagr,
         "CAGR": cagr,
@@ -74,7 +102,7 @@ def metrics(result: BacktestResult, benchmark: BacktestResult | None = None) -> 
         "exposure": float((curve.exposure / equity).mean()),
         "time_in_market": float((curve.exposure > 0).mean()),
         "cash_usage": float((1 - curve.cash / equity).mean()),
-        "fees_paid": costs["commission"],
+        "fees_paid": costs["commission"] + costs["fx_cost"],
         **costs,
         "total_costs": sum(costs.values()),
         "open_positions": len(result.portfolio.positions),
@@ -88,13 +116,7 @@ def metrics(result: BacktestResult, benchmark: BacktestResult | None = None) -> 
     if years < 1:
         output["warnings"].append("Less than one year: CAGR/annualized return suppressed.")
     if benchmark is not None:
-        b = (
-            benchmark.curve.set_index("timestamp")
-            .equity.resample("1D")
-            .last()
-            .dropna()
-            .pct_change()
-        )
+        b = daily_returns(benchmark.curve.set_index("timestamp").equity)
         aligned = pd.concat([returns.rename("strategy"), b.rename("benchmark")], axis=1).dropna()
         output["benchmark_return"] = float(
             benchmark.curve.equity.iloc[-1] / benchmark.curve.equity.iloc[0] - 1

@@ -1,8 +1,9 @@
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Timeframe = Literal["1d", "1h", "30m", "15m", "5m", "1m"]
 
@@ -35,6 +36,17 @@ class StrategyConfig(StrictModel):
 
 
 class RiskConfig(StrictModel):
+    risk_timezone: str = "Europe/Madrid"
+
+    @field_validator("risk_timezone")
+    @classmethod
+    def valid_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as error:
+            raise ValueError("Invalid risk timezone") from error
+        return value
+
     starting_equity: float = Field(default=10000, gt=0)
     base_currency: str = "EUR"
     sizing: Literal["percentage", "fixed", "atr", "volatility"] = "atr"

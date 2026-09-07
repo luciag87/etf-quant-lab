@@ -1,4 +1,5 @@
 risk:
+  risk_timezone: Europe/Madrid
   starting_equity: 10000
   base_currency: EUR
   risk_per_trade_pct: 0.5

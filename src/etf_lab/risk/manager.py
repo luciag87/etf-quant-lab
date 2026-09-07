@@ -15,18 +15,29 @@ class RiskManager:
         self.day_equity = config.starting_equity
         self.day = ""
         self.trades_today = 0
-        self.cooldown_until = -1
+        self.cooldown_until: dict[str, int] = {}
         self.halted = False
+        self.daily_halted = False
+        self.last_equity = config.starting_equity
+
+    def record_loss(self, instrument_id: str, bar_number: int) -> None:
+        self.cooldown_until[instrument_id] = max(
+            self.cooldown_until.get(instrument_id, -1),
+            bar_number + self.config.cooldown_after_losses_bars,
+        )
 
     def observe(self, portfolio: Portfolio, ts: pd.Timestamp) -> bool:
-        day = str(ts.tz_convert("Europe/Madrid").date())
+        day = str(ts.tz_convert(self.config.risk_timezone).date())
         if day != self.day:
-            self.day, self.day_equity, self.trades_today = day, portfolio.equity, 0
+            self.day, self.day_equity, self.trades_today = day, self.last_equity, 0
+            self.daily_halted = False
         self.peak = max(self.peak, portfolio.equity)
         self.halted |= portfolio.equity / self.peak - 1 <= -self.config.max_drawdown_pct / 100
-        return self.halted or (
+        self.daily_halted |= (
             portfolio.equity / self.day_equity - 1 <= -self.config.max_daily_loss_pct / 100
         )
+        self.last_equity = portfolio.equity
+        return self.halted or self.daily_halted
 
     def approve(
         self,
@@ -47,7 +58,7 @@ class RiskManager:
             if (
                 blocked
                 or iid in portfolio.positions
-                or bar_number < self.cooldown_until
+                or bar_number < self.cooldown_until.get(iid, -1)
                 or self.trades_today >= c.max_trades_per_day
                 or len(portfolio.positions) >= c.max_open_positions
             ):

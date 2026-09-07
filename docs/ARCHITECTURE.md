@@ -37,3 +37,7 @@ harían falta autorización expresa, evaluación normativa del broker/cliente/pr
 contratos de datos, feed de quotes, reconciliación de órdenes y fills, idempotencia,
 persistencia/recuperación, kill switch y validación independiente. Este proyecto no los
 implementa ni está preparado para recibir credenciales bancarias.
+
+FASE 1: las marcas se actualizan en conjunto por timestamp y etapa antes del riesgo.
+Se conserva cierre -> acciones -> apertura. Las ordenes compiten por cash de forma
+serial por instrument_id, con revalidacion; el tie-break puede afectar asignaciones.

@@ -63,7 +63,7 @@ conserva experimentos. Exportaciones de optimization/walkforward van a data/back
 
 El ejemplo responde si el software funciona, no si existe expectativa real positiva.
 Comparar estrategia con Buy & Hold del mismo período y revisar costes y exposición.
-El benchmark del reporte es ideal y con mayor asignación; para comparar costes homogéneos,
+El benchmark es ideal, con universo inicial congelado y objetivos iguales; para comparar costes homogéneos,
 ejecutar Buy & Hold por separado. Pocos trades no prueban nada; ratios no definidos son null.
 No se deducen impuestos. Una estrategia puede perder después de spread/comisiones aunque
 la señal bruta parezca útil. Los defaults son supuestos experimentales no calibrados.
@@ -93,3 +93,7 @@ Hay CSV descriptivos por franjas/gap; no hay atribución de trades por franja ni
 Esta entrega prioriza el MVP offline; no declara implementadas todas las extensiones.
 
 Resultados y comprobaciones de esta entrega: [DELIVERY.md](docs/DELIVERY.md).
+
+FASE 1: cooldown por instrumento, riesgo diario configurable, valoracion simultanea,
+IOC explicito, contabilidad neta y metricas por ciclos. Ver [PHASE1.md](docs/PHASE1.md).
+Live sigue bloqueado.

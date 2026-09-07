@@ -1,6 +1,8 @@
 """Global clock: completed bars, corporate actions, then next opens at equal time."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from itertools import groupby
+from math import isclose
 from typing import Any
 
 import pandas as pd
@@ -25,6 +27,10 @@ class BacktestResult:
     fills: pd.DataFrame
     decisions: pd.DataFrame
     portfolio: Portfolio
+    pending_orders: list[OrderIntent] = field(default_factory=list)
+    order_events: pd.DataFrame = field(default_factory=pd.DataFrame)
+    estimated_liquidation_cost: float | None = None
+    liquidation_estimate_reason: str = "No execution snapshot available"
 
 
 class Backtester:
@@ -50,6 +56,12 @@ class Backtester:
         for action in actions:
             if action.instrument_id not in self.registry.items:
                 raise ValueError("Unregistered corporate action identity")
+            affected = data[data.instrument_id == action.instrument_id]
+            if (
+                (affected.bar_start < action.effective_at)
+                & (affected.timestamp > action.effective_at)
+            ).any():
+                raise ValueError("Corporate action inside a bar requires finer raw data")
         # Reset feature warm-up after splits instead of back-adjusting past signals.
         segments = []
         for iid, group in data.groupby("instrument_id"):
@@ -65,6 +77,23 @@ class Backtester:
         p = Portfolio(c.risk.starting_equity, c.risk.base_currency)
         risk, strategy = RiskManager(c.risk), ConfiguredStrategy(c.strategy)
         pending: dict[str, OrderIntent] = {}
+        order_events: list[dict[str, Any]] = []
+        exit_reasons: dict[str, str] = {}
+
+        def cancel(iid: str, ts: pd.Timestamp, reason: str) -> None:
+            order = pending.pop(iid, None)
+            if order is not None:
+                order_events.append(
+                    {
+                        "instrument_id": iid,
+                        "timestamp": ts,
+                        "created_at": order.created_at,
+                        "side": order.side,
+                        "quantity": order.quantity,
+                        "reason": reason,
+                    }
+                )
+
         last: dict[str, pd.Series] = {}
         counters: dict[str, int] = {}
         daily_closes: dict[str, list[float]] = {}
@@ -81,6 +110,8 @@ class Backtester:
         for idx, action in enumerate(actions):
             events.append((action.effective_at, 1, action.instrument_id, idx))
         events.sort()
+        groups = {key: list(group) for key, group in groupby(events, key=lambda event: event[:2])}
+        prepared: tuple[pd.Timestamp, int] | None = None
         initial = min(data.bar_start)
         curve.append(
             {
@@ -95,6 +126,19 @@ class Backtester:
         for ts, kind, iid, idx in events:
             if ts < initial or ts > data.timestamp.max():
                 continue
+            if prepared != (ts, kind):
+                # All prices in this stage are known at the same instant. Publish
+                # their marks atomically before any instrument can observe risk.
+                if kind in (0, 2):
+                    for _, _, mark_iid, mark_idx in groups[(ts, kind)]:
+                        mark_row = enriched.iloc[mark_idx]
+                        p.marks[mark_iid] = (
+                            float(mark_row.close if kind == 0 else mark_row.open),
+                            self.fx.rate(
+                                self.registry.items[mark_iid].currency, p.base_currency, ts
+                            ),
+                        )
+                prepared = (ts, kind)
             instrument = self.registry.items[iid]
             rate = self.fx.rate(instrument.currency, p.base_currency, ts)
             for held_iid in p.positions:
@@ -106,12 +150,17 @@ class Backtester:
             if kind == 1:
                 action = actions[idx]
                 if action.kind == "split":
-                    pending.pop(iid, None)
+                    cancel(iid, ts, "corporate split")
                     last.pop(iid, None)
                     daily_closes.pop(iid, None)
                     if iid in p.positions:
                         pos = p.positions[iid]
-                        pos.quantity *= action.value
+                        new_quantity = pos.quantity * action.value
+                        if not isclose(new_quantity, round(new_quantity), abs_tol=1e-8):
+                            raise ValueError(
+                                "Fractional split position requires cash-in-lieu support"
+                            )
+                        pos.quantity = round(new_quantity)
                         pos.average_price /= action.value
                         pos.stop_distance /= action.value
                         pos.atr_at_entry /= action.value
@@ -120,7 +169,9 @@ class Backtester:
                         p.marks[iid] = (old / action.value, old_fx)
                 elif iid in p.positions:
                     # Accrual at ex-date; payment lag and withholding deliberately excluded.
-                    p.cash += p.positions[iid].quantity * action.value * rate
+                    income = p.positions[iid].quantity * action.value * rate
+                    p.cash += income
+                    p.distribution_income += income
                 continue
             row = enriched.iloc[idx].copy()
             if kind == 2:
@@ -134,7 +185,10 @@ class Backtester:
                     and order.side == Side.BUY
                     and last[iid].session != row.session
                 ):
-                    pending.pop(iid)
+                    cancel(iid, ts, "session expired")
+                    continue
+                latency = 0 if c.execution.mode == "ideal" else c.execution.latency_ms
+                if ts < pd.Timestamp(order.created_at) + pd.Timedelta(milliseconds=latency):
                     continue
                 if order.side == Side.BUY:
                     # Revalidate at actual opening price/cash after gaps and other fills.
@@ -161,14 +215,14 @@ class Backtester:
                         signal, check_row, p, rate, self.registry, counters.get(iid, 0)
                     )
                     if approved is None:
-                        pending.pop(iid)
+                        cancel(iid, ts, "risk rejected")
                         continue
                     order = order.model_copy(
                         update={"quantity": min(order.quantity, approved.quantity)}
                     )
                 else:
                     if iid not in p.positions:
-                        pending.pop(iid)
+                        cancel(iid, ts, "position closed")
                         continue
                     order = order.model_copy(
                         update={"quantity": min(order.quantity, int(p.positions[iid].quantity))}
@@ -188,14 +242,29 @@ class Backtester:
                 if fill:
                     atr = float(last[iid].atr) if pd.notna(last[iid].atr) else 0
                     p.apply(fill, order.stop_distance, atr)
+                    order_events.append(
+                        {
+                            "instrument_id": iid,
+                            "timestamp": ts,
+                            "created_at": order.created_at,
+                            "side": order.side,
+                            "quantity": fill.quantity,
+                            "reason": "fill",
+                        }
+                    )
+                    # Fill price contains spread/slippage; valuation uses the observable mid.
+                    p.marks[iid] = (float(row.open), rate)
                     if fill.side == Side.BUY:
                         risk.trades_today += 1
                     elif p.trades[-1]["pnl"] < 0:
-                        risk.cooldown_until = (
-                            counters.get(iid, 0) + c.risk.cooldown_after_losses_bars
-                        )
+                        risk.record_loss(iid, counters.get(iid, 0))
                     # IOC: unfilled remainder cancels, never silently assumes full execution.
-                    pending.pop(iid)
+                    cancel(iid, ts, "IOC remainder" if fill.quantity < order.quantity else "filled")
+                    if iid not in p.positions:
+                        exit_reasons.pop(iid, None)
+                    risk.observe(p, ts)
+                else:
+                    cancel(iid, ts, "IOC no fill")
                 continue
             # Only now are this bar's OHLCV and indicators available to decisions.
             p.marks[iid] = (float(row.close), rate)
@@ -215,6 +284,8 @@ class Backtester:
             )
             last[iid] = row
             signal = strategy.decide(row, iid in p.positions)
+            if iid in pending and pending[iid].side == Side.BUY and signal.action != "LONG":
+                cancel(iid, ts, "signal invalidated")
             halted = risk.observe(p, ts)
             if iid in p.positions and c.strategy.name != "buy-and-hold":
                 pos = p.positions[iid]
@@ -244,6 +315,8 @@ class Backtester:
                     reason = "risk halt"
                 if reason:
                     signal = signal.model_copy(update={"action": "EXIT", "reason": reason})
+            if iid in p.positions and iid in exit_reasons:
+                signal = signal.model_copy(update={"action": "EXIT", "reason": exit_reasons[iid]})
             if signal.action != "HOLD" and iid not in pending:
                 new_order = risk.approve(signal, row, p, rate, self.registry, counters[iid])
                 decisions.append(
@@ -251,6 +324,8 @@ class Backtester:
                 )
                 if new_order:
                     pending[iid] = new_order
+                    if new_order.side == Side.SELL:
+                        exit_reasons[iid] = new_order.reason
             # FX marks of every held listing refreshed as of the global clock, never backfilled.
             for key in p.positions:
                 px, _ = p.marks[key]
@@ -268,10 +343,66 @@ class Backtester:
                     "fx_pnl": p.fx_pnl,
                 }
             )
+        # Include terminal actions without fictitious liquidation. Intermediate
+        # curve rows retain their documented completed-bar valuation convention.
+        curve.append(
+            {
+                "timestamp": data.timestamp.max(),
+                "equity": p.equity,
+                "cash": p.cash,
+                "exposure": p.exposure,
+                "unrealized_pnl": p.unrealized_pnl,
+                "fx_pnl": p.fx_pnl,
+            }
+        )
+        liquidation_cost = 0.0
+        liquidation_reason = "Single-attempt estimate at final marks; capacity is not guaranteed"
+        for held_iid, pos in p.positions.items():
+            if held_iid not in last or not isclose(pos.quantity, round(pos.quantity)):
+                liquidation_cost = float("nan")
+                liquidation_reason = "Missing completed-bar snapshot or unsupported quantity"
+                break
+            snapshot = last[held_iid]
+            price, fx_rate = p.marks[held_iid]
+            execution = c.execution.model_copy(deep=True)
+            if self.registry.items[held_iid].currency == p.base_currency:
+                execution.fx_cost_bps = 0
+            order = OrderIntent(
+                instrument_id=held_iid,
+                side=Side.SELL,
+                quantity=round(pos.quantity),
+                created_at=data.timestamp.max(),
+                reason="liquidation estimate",
+            )
+            estimated = PaperBroker(execution).execute(
+                order,
+                data.timestamp.max() + pd.Timedelta(milliseconds=execution.latency_ms),
+                price,
+                fx_rate,
+                p.cash,
+                float(snapshot.volume),
+                float(snapshot.spread_bps),
+            )
+            if estimated is None or estimated.quantity != order.quantity:
+                liquidation_cost = float("nan")
+                liquidation_reason = (
+                    "Insufficient last-bar capacity for a complete liquidation estimate"
+                )
+                break
+            liquidation_cost += (
+                estimated.commission
+                + estimated.fx_cost
+                + estimated.spread_cost
+                + estimated.slippage_cost
+            )
         return BacktestResult(
             pd.DataFrame(curve).drop_duplicates("timestamp", keep="last"),
             pd.DataFrame(p.trades),
             pd.DataFrame([f.model_dump() for f in p.fills]),
             pd.DataFrame(decisions),
             p,
+            list(pending.values()),
+            pd.DataFrame(order_events),
+            liquidation_cost if pd.notna(liquidation_cost) else None,
+            liquidation_reason,
         )

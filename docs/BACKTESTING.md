@@ -26,7 +26,7 @@ No son tarifas observadas ni parámetros óptimos. Spread se carga medio por lad
 slippage/spread están incorporados al fill y sólo se desglosan para atribución, sin
 restarlos dos veces. Comisión/FX se restan del cash. TER ya incorporado a precios del
 fondo no se vuelve a deducir. Órdenes con fill parcial cancelan resto (IOC); si no hay
-capacidad permanecen pendientes hasta siguiente apertura. Las salidas pueden repetirse
+capacidad en el primer intento elegible tambien caducan. Esperar latencia no es intentar. Las salidas pueden repetirse
 si hay remanente. No hay capital infinito. Se revalida riesgo al abrir después de gaps.
 
 Stops, take profit y trailing se observan al cierre y generan salida posterior; no son
@@ -70,7 +70,7 @@ CAGR sólo con >=1 año. Datos de distintos mercados se agrupan por día UTC: un
 global complejo requerirá otra convención de valoración. Volatilidad no descuenta festivos
 globales ni días sin observación. Alpha/beta aproximadas OLS sin factores adicionales.
 
-Trades cuenta fills de salida, no ciclos agregados. Cash usage/exposure son medias
+number_of_trades es alias de exit_fill_count; closed_position_cycle_count cuenta ciclos completos. Cash usage/exposure son medias
 por evento de cierre (no ponderadas por tiempo de reloj). Bootstrap circular de bloques
 diarios requiere >=30 observaciones; no corrige múltiples comparaciones. No hay prueba
 concluyente de edge. Benchmark ideal sirve como hurdle exigente; la CLI también permite
@@ -83,3 +83,40 @@ impiden retroceder existencia automáticamente. Look-ahead: datos, volumen, FX y
 deben estar disponibles antes de decisiones. Overfitting: seleccionar reglas que explican
 ruido histórico. Data snooping: muchas variantes elevan falsos descubrimientos incluso
 con OOS reutilizado. Registrar todos los intentos y reservar un test final nuevo.
+
+
+## Contratos de FASE 1
+
+- Fill inmutable: cantidad entera positiva, precio/FX positivos finitos, costes no
+  negativos finitos y timestamp aware. Validacion antes de mutar cartera. Sin IDs
+  de broker ni deduplicacion duradera todavia; no reaplicar eventos externos.
+- Cooldown por instrumento y sus barras completadas. Cada exit fill neto negativo
+  fija limite actual+N; se permite entrar exactamente al llegar al limite.
+- risk_timezone (Europe/Madrid default) configura dia operativo. Referencia: ultima
+  equity observada del dia anterior o capital inicial. Gap incluido. Daily loss
+  queda bloqueado hasta el siguiente dia; drawdown no se resetea durante el run.
+- Entradas pendientes se cancelan cuando la senal deja de ser LONG. IOC cancela
+  resto o intento sin capacidad. Se mantiene intencion de salida mientras quede inventario.
+- Order: intencion. Fill: ejecucion parcial/completa. Round trip / closed position cycle:
+  posicion cero -> positiva -> cero. Puede incluir varias compras/ventas parciales.
+- Unrealized neto descuenta fees de entrada pendientes; realized_return incluye P&L
+  neto de cantidades vendidas y distribuciones. La suma con net_unrealized_pnl dividido
+  por capital inicial reconcilia marked_to_market_return. Ciclos excluyen distribuciones.
+- open_position_count/value muestran inventario marcado. estimated_liquidation_cost usa
+  ultimos precios, FX, spread y volumen conocidos, bajo el escenario de ejecucion.
+  Null con motivo si falta capacidad para estimar toda la posicion en un intento.
+  No aplica fills ni cambia cash; no garantiza liquidez futura.
+- Retornos diarios UTC incluyen el tramo inicial intradia. Una sola observacion inicial
+  diaria sirve de referencia sin agregar un retorno cero artificial.
+- Benchmark: listings observados en la primera apertura, congelados sin incorporaciones
+  posteriores ni rebalanceo. Objetivos iguales y costes ideales; warm-up, liquidez y
+  redondeo impiden asegurar inversion completa. Metadata contiene politica/config.
+  El Buy & Hold del usuario conserva su configuracion de riesgo.
+- Reportes guardan order-events, pending y cycles por escenario. Curva intermedia de
+  cierres completados; snapshot terminal incluye todos los eventos finales.
+- Sidecars con adjustment_method distinto de raw se rechazan; sin sidecar se asume raw.
+  No puede detectar declaraciones falsas de proveedores. Acciones dentro de una barra
+  se rechazan; se admiten fronteras y gaps. Reverse splits fraccionarios se rechazan
+  antes de mutar posicion. Backtest/paper aceptan --actions-file; optimize/walkforward
+  rechazan explicitamente esa opcion hasta soportar acciones por fold.
+- Reportes historicos de ejemplo corresponden a la version anterior a FASE 1.

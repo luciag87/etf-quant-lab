@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any
 
 import pandas as pd
@@ -18,6 +19,8 @@ class Position:
     atr_at_entry: float = 0
     peak: float = 0
     bars_held: int = 0
+    cycle_pnl: float = 0
+    cycle_exit_fills: int = 0
 
 
 class Portfolio:
@@ -28,10 +31,12 @@ class Portfolio:
         self.positions: dict[str, Position] = {}
         self.marks: dict[str, tuple[float, float]] = {}
         self.realized_pnl = 0.0
+        self.distribution_income = 0.0
         self.fx_pnl = 0.0
         self.fees = 0.0
         self.trades: list[dict[str, Any]] = []
         self.fills: list[Fill] = []
+        self.closed_cycles: list[dict[str, Any]] = []
 
     @property
     def exposure(self) -> float:
@@ -45,12 +50,18 @@ class Portfolio:
 
     @property
     def unrealized_pnl(self) -> float:
-        return self.exposure - sum(p.cost_base for p in self.positions.values())
+        return self.exposure - sum(p.cost_base + p.entry_fees for p in self.positions.values())
 
     def apply(self, fill: Fill, stop_distance: float = 0, atr: float = 0) -> None:
+        # Validate even model_copy/model_construct inputs before touching ledger state.
+        fill = Fill.model_validate(fill.model_dump())
         iid, q = fill.instrument_id, fill.quantity
         notional = q * fill.price * fill.fx_rate
         fees = fill.commission + fill.fx_cost
+        if not isfinite(notional + fees):
+            raise ValueError("Non-finite fill notional or fees")
+        if fill.side == Side.SELL and self.cash + notional < fees:
+            raise ValueError("Insufficient cash for exit fees")
         if fill.side == Side.BUY:
             if notional + fees > self.cash + 1e-8:
                 raise ValueError("Insufficient cash")
@@ -77,6 +88,8 @@ class Portfolio:
                     fill.price,
                 )
         else:
+            if iid not in self.positions:
+                raise ValueError("No position to sell")
             p = self.positions[iid]
             if q > p.quantity + 1e-8:
                 raise ValueError("Short selling forbidden")
@@ -105,7 +118,18 @@ class Portfolio:
             p.quantity -= q
             p.cost_base -= basis
             p.entry_fees -= entry_fees
+            p.cycle_pnl += pnl
+            p.cycle_exit_fills += 1
             if p.quantity < 1e-8:
+                self.closed_cycles.append(
+                    {
+                        "instrument_id": iid,
+                        "entry_at": p.entry_at,
+                        "exit_at": fill.timestamp,
+                        "pnl": p.cycle_pnl,
+                        "exit_fill_count": p.cycle_exit_fills,
+                    }
+                )
                 del self.positions[iid]
         self.fees += fees
         self.marks[iid] = (fill.price, fill.fx_rate)

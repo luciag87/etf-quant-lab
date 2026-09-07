@@ -5,7 +5,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Instrument(BaseModel):
@@ -95,14 +95,15 @@ class OrderIntent(BaseModel):
 
 
 class Fill(BaseModel):
-    instrument_id: str
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
+    instrument_id: str = Field(min_length=1)
     side: Side
-    quantity: int
-    timestamp: datetime
-    price: float
-    fx_rate: float
-    commission: float
-    fx_cost: float
-    spread_cost: float
-    slippage_cost: float
+    quantity: int = Field(gt=0, strict=True)
+    timestamp: AwareDatetime
+    price: float = Field(gt=0)
+    fx_rate: float = Field(gt=0)
+    commission: float = Field(ge=0)
+    fx_cost: float = Field(ge=0)
+    spread_cost: float = Field(ge=0)
+    slippage_cost: float = Field(ge=0)
     reason: str

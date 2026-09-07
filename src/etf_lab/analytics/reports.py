@@ -16,7 +16,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from etf_lab import __version__  # noqa: E402
-from etf_lab.analytics.metrics import metrics  # noqa: E402
+from etf_lab.analytics.metrics import daily_returns as observed_daily_returns  # noqa: E402
+from etf_lab.analytics.metrics import metrics
 from etf_lab.analytics.research import session_analysis  # noqa: E402
 from etf_lab.analytics.statistics import block_bootstrap  # noqa: E402
 from etf_lab.backtest.engine import BacktestResult  # noqa: E402
@@ -80,19 +81,29 @@ def save_report(
         result.trades.to_csv(target / f"trades-{mode}.csv", index=False)
         result.fills.to_csv(target / f"fills-{mode}.csv", index=False)
         result.decisions.to_csv(target / f"decisions-{mode}.csv", index=False)
+        result.order_events.to_csv(target / f"order-events-{mode}.csv", index=False)
+        pd.DataFrame(result.portfolio.closed_cycles).to_csv(
+            target / f"cycles-{mode}.csv", index=False
+        )
+        (target / f"pending-{mode}.json").write_text(
+            json.dumps(
+                [order.model_dump(mode="json") for order in result.pending_orders], indent=2
+            ),
+            encoding="utf-8",
+        )
         axes[0, 0].plot(curve.index, curve.equity, label=mode)
         axes[0, 1].plot(curve.index, curve.equity / curve.equity.cummax() - 1, label=mode)
     b = benchmark.curve
     axes[0, 0].plot(
         b.timestamp,
         b.equity,
-        label="Buy & Hold (ideal, full allocation)",
+        label="Buy & Hold (ideal, initial universe; effective allocation varies)",
         color="black",
         linestyle="--",
     )
     primary = results.get("realistic", next(iter(results.values())))
     daily = primary.curve.set_index("timestamp").equity.resample("1D").last().dropna()
-    daily_returns = daily.pct_change().dropna()
+    daily_returns = observed_daily_returns(primary.curve.set_index("timestamp").equity)
     axes[1, 0].plot(daily_returns.rolling(20).std() * 252**0.5)
     if len(daily_returns) < 20:
         axes[1, 0].text(

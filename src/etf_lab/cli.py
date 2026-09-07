@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from etf_lab.analytics.reports import save_report
-from etf_lab.backtest.engine import Backtester
+from etf_lab.backtest.engine import Backtester, BacktestResult
 from etf_lab.backtest.optimizer import optimize as run_optimize
 from etf_lab.backtest.walkforward import walkforward as run_walkforward
 from etf_lab.config import LabConfig, load_config
@@ -38,17 +38,15 @@ def setup(
     path = dataset or latest(ROOT)
     frame = pd.read_parquet(path)
     if path.with_suffix(".json").exists():
-        tf = json.loads(path.with_suffix(".json").read_text())["timeframe"]
+        metadata = json.loads(path.with_suffix(".json").read_text())
+        if metadata.get("adjustment_method", "raw") != "raw":
+            raise ValueError("Engine accepts raw OHLC only")
+        tf = metadata["timeframe"]
         if config and c.strategy.timeframe != tf:
             raise ValueError("Strategy and dataset timeframes differ")
         c.strategy.timeframe = tf
     if strategy:
         c.strategy.name = strategy  # type: ignore[assignment]
-    if c.strategy.name == "buy-and-hold":
-        c.risk.sizing = "percentage"
-        c.risk.position_size_pct = 100
-        c.risk.max_position_pct = 100
-        c.risk.max_sector_exposure_pct = 100
     if c.strategy.timeframe == "1d" and config is None:
         c.strategy.entry_start_minutes_after_open = 0
         c.strategy.entry_end_minutes_before_close = 0
@@ -119,6 +117,54 @@ def doctor_data(dataset: OptionPath = None, timeframe: str = "5m") -> None:
         raise typer.Exit(1) from error
 
 
+def load_actions(path: Path | None) -> list[CorporateAction]:
+    if path is None:
+        return []
+    return [
+        CorporateAction(
+            instrument_id=r["instrument_id"],
+            kind=r["kind"],
+            value=r["value"],
+            effective_at=pd.Timestamp(r["effective_at"]),
+            known_at=pd.Timestamp(r["known_at"]),
+        )
+        for r in json.loads(path.read_text())
+    ]
+
+
+def benchmark_run(
+    data: pd.DataFrame,
+    config: LabConfig,
+    universe: InstrumentRegistry,
+    fx: TableFXProvider,
+    actions: list[CorporateAction],
+) -> tuple[BacktestResult, dict[str, Any]]:
+    # Membership is frozen using only listings observed at the initial opening.
+    # Later listings do not retroactively dilute initial target weights.
+    start = data.bar_start.min()
+    ids = sorted(data.loc[data.bar_start == start, "instrument_id"].unique().tolist())
+    baseline = config.model_copy(deep=True)
+    baseline.strategy.name = "buy-and-hold"
+    baseline.risk.sizing = "percentage"
+    baseline.risk.position_size_pct = 100 / len(ids)
+    baseline.risk.max_position_pct = baseline.risk.max_sector_exposure_pct = 100
+    baseline.risk.max_total_exposure_pct = 100
+    baseline.risk.max_open_positions = baseline.risk.max_trades_per_day = len(ids)
+    baseline.risk.max_daily_loss_pct = baseline.risk.max_drawdown_pct = 100
+    baseline.execution.mode = "ideal"
+    eligible = data[data.instrument_id.isin(ids)].copy()
+    result = Backtester(baseline, universe, fx).run(
+        eligible, [a for a in actions if a.instrument_id in ids]
+    )
+    return result, {
+        "membership": "frozen at first observed opening; later listings excluded",
+        "instrument_ids": ids,
+        "as_of": str(start),
+        "config": baseline.model_dump(mode="json"),
+        "allocation": "equal target weights; integer rounding, warm-up and liquidity apply",
+    }
+
+
 def execute(
     dataset: Path | None,
     config: Path | None,
@@ -127,36 +173,16 @@ def execute(
     actions_file: Path | None = None,
 ) -> Path:
     data, c, fx = setup(dataset, config, strategy, fx_file)
-    actions = []
-    if actions_file:
-        actions = [
-            CorporateAction(
-                instrument_id=r["instrument_id"],
-                kind=r["kind"],
-                value=r["value"],
-                effective_at=pd.Timestamp(r["effective_at"]),
-                known_at=pd.Timestamp(r["known_at"]),
-            )
-            for r in json.loads(actions_file.read_text())
-        ]
+    actions = load_actions(actions_file)
     results = {}
     for mode in ["ideal", "realistic", "pessimistic"]:
         scenario = c.model_copy(deep=True)
         scenario.execution.mode = mode  # type: ignore[assignment]
         results[mode] = Backtester(scenario, registry(), fx).run(data, actions)
-    baseline = c.model_copy(deep=True)
-    baseline.strategy.name = "buy-and-hold"
-    baseline.risk.sizing = "percentage"
-    baseline.risk.position_size_pct = 100 / data.instrument_id.nunique()
-    baseline.risk.max_position_pct = 100
-    baseline.risk.max_sector_exposure_pct = 100
-    baseline.risk.max_daily_loss_pct = 100
-    baseline.risk.max_drawdown_pct = 100
-    baseline.execution.mode = "ideal"
-    benchmark = Backtester(baseline, registry(), fx).run(data, actions)
+    benchmark, policy = benchmark_run(data, c, registry(), fx, actions)
     provenance: dict[str, Any] = {
         "registry": [i.model_dump(mode="json", by_alias=True) for i in registry().items.values()],
-        "benchmark_config": baseline.model_dump(mode="json"),
+        "benchmark_policy": policy,
         "fx_table": fx.frame.to_json(date_format="iso"),
         "corporate_actions": actions_file.read_text() if actions_file else [],
     }
@@ -183,10 +209,11 @@ def paper(
     config: OptionPath = None,
     strategy: str | None = None,
     fx_file: OptionPath = None,
+    actions_file: OptionPath = None,
 ) -> None:
     """Offline historical paper replay using the SAME engine. Not a live feed."""
     data, c, fx = setup(dataset, config, strategy, fx_file)
-    result = Backtester(c, registry(), fx).run(data)
+    result = Backtester(c, registry(), fx).run(data, load_actions(actions_file))
     table = Table(title="ETF QUANT LAB — SIMULATED PAPER REPLAY (historical)")
     table.add_column("Item")
     table.add_column("Value")
@@ -198,6 +225,9 @@ def paper(
         "Unrealized": result.portfolio.unrealized_pnl,
         "Positions": str(result.portfolio.positions),
         "Exit fills": len(result.trades),
+        "Closed position cycles": len(result.portfolio.closed_cycles),
+        "Pending orders": len(result.pending_orders),
+        "Estimated liquidation cost": result.estimated_liquidation_cost,
     }.items():
         table.add_row(key, str(value))
     console.print(table)
@@ -211,7 +241,10 @@ def optimize(
     fx_file: OptionPath = None,
     evaluate_test: bool = False,
     random_count: int | None = None,
+    actions_file: OptionPath = None,
 ) -> None:
+    if actions_file is not None:
+        raise ValueError("Corporate actions are not supported in optimization folds yet")
     data, c, fx = setup(dataset, config, strategy, fx_file)
     result = run_optimize(
         data, c, registry(), fx, random_count=random_count, evaluate_test=evaluate_test
@@ -241,7 +274,10 @@ def walkforward(
     train_months: int = 12,
     test_months: int = 3,
     step_months: int = 3,
+    actions_file: OptionPath = None,
 ) -> None:
+    if actions_file is not None:
+        raise ValueError("Corporate actions are not supported in walk-forward folds yet")
     # A bundled two-year daily synthetic dataset makes the default command reproducible.
     if dataset is None and config is None:
         dataset = ROOT / "data/sample_daily.parquet"
